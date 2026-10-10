@@ -1,0 +1,13 @@
+baseURL = 'https://rays.bfdy.dev/rays-orm'
+languageCode = 'en-us'
+title = 'BeamFoundryi Rays Orm'
+theme = 'github.com/alex-shpak/hugo-book'
+
+#[module]
+#  [[module.imports]]
+#    path = "github.com/BeamFoundry/rays-docs-resources"
+
+[params]
+  BookLogo = ''
+  BookSection = 'docs'
+  BookTheme= 'auto'
