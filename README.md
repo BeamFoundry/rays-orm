@@ -1,5 +1,7 @@
 # BeamFoundry Rays ORM ⛁
 
+**This is an extract of the full documentation available at [rays.bdfy.dev](https://rays.bfdy.dev/rays-orm/).**
+
 **Rays ORM** is the official database integration package for the **BeamFoundry Rays** framework,
 bringing the magic of Spring Data-style repositories to Go using [GORM](https://gorm.io/).
 
@@ -7,7 +9,7 @@ By bridging Rays' Inversion of Control (IoC) container with GORM and ThreadLocal
 this package completely eliminates database connection boilerplate, automatic repository method
 generation, and context-passing for transactions.
 
-## Introduction & Architecture
+## Introduction and Architecture
 
 In standard Go applications, managing database transactions across multiple service layers usually requires
 polluting your function signatures by passing a `tx *gorm.DB` parameter down the entire call stack.
@@ -18,7 +20,7 @@ Furthermore, writing basic CRUD operations for every model leads to massive code
 ### 🧹 Simplifying with Dot Imports
 Just like the core Rays framework, it is highly recommended to use Go's dot import feature for the ORM package
 (`import . "github.com/BeamFoundry/rays-orm"`). This allows you to use types like `OrmRepository`,
-`OrmQueryFunc`, and `GormTxManager` directly without package prefixes, keeping your domain code exceptionally clean and readable.
+`OrmQueryFunc`, and `GormTransactional` directly without package prefixes, keeping your domain code exceptionally clean and readable.
 
 ### Core Architectural Features
 
@@ -28,12 +30,12 @@ Just like the core Rays framework, it is highly recommended to use Go's dot impo
 2. **ThreadLocal Transactions:** Using `github.com/timandy/routine`, Rays ORM implements true ThreadLocal storage for Go.
   When a Service starts a transaction, the `*gorm.DB` transaction object is bound to the current goroutine.
   Downstream repositories transparently inherit this transaction without requiring you to pass it via function arguments.
-3. **IoC Managed DB:** You define a standard `*gorm.DB` Beam, and the framework's `GormTxManager` handles the rest.
+3. **IoC Managed DB:** You define a standard `*gorm.DB` Beam, and the framework's `GormTransactional` handles the rest.
 4. **Secure by Default (SQL Injection Prevention):** The auto-generated query builder does not concatenate raw strings.
 It automatically translates your method names into **parameterized queries** using `?` placeholders, ensuring that all database
 interactions are natively protected against SQL injection attacks without requiring manual sanitization.
 
-## Quickstart & Setup
+## Quickstart and Setup
 
 To use Rays ORM, you must define a Configuration Beam that provides a raw `*gorm.DB` instance,
 and optionally a Migrator service to initialize your schema.
@@ -98,7 +100,7 @@ func (this *DbMigrator) PostConstruct() Error {
 ### 3. The Entrypoint
 
 In your `main.go`, you simply need to underscore import the `rays-orm` package. This ensures the framework detects
-the `GormTxManager` and prepares the repository generation hooks.
+the `GormTransactional` and prepares the repository generation hooks.
 
 ```go
 package main
@@ -258,14 +260,14 @@ A common pain point in Go is passing database transaction objects (`*gorm.DB`) e
 every repository function.
 
 Rays ORM utilizes `github.com/timandy/routine` to establish **ThreadLocal** state for your goroutines.
-When you start a transaction via the `GormTxManager`, the transaction is stored in the local thread context.
+When you start a transaction via the `GormTransactional`, the transaction is stored in the local thread context.
 
 When your auto-generated repositories execute queries, they transparently check the ThreadLocal context.
 If a transaction exists, they use it. If not, they use the global `*gorm.DB`.
 
-### Using the `GormTxManager` Closure
+### Using the `GormTransactional` Closure
 
-Inject the `*GormTxManager` into your business logic services to orchestrate complex database operations safely.
+Inject the `GormTransactional` into your business logic services to orchestrate complex database operations safely.
 The `Transactional` closure accepts a `context.Context` (which is passed to GORM's `WithContext`) and manages commits
 and rollbacks automatically based on the returned error.
 
@@ -282,7 +284,7 @@ import (
 type UserService struct {
     Service
 
-    txManager *GormTxManager  `@:"Inject"`
+    txManager GormTransactional  `@:"Inject"`
     userRepo  *UserRepository `@:"Inject"`
     auditRepo *AuditRepository`@:"Inject"`
 }
@@ -332,7 +334,7 @@ import (
 
 type UserServiceImpl struct {
     Service
-    transactionManager *GormTxManager  `@:"Inject"`
+    transactionManager GormTransactional  `@:"Inject"`
     userRepository     *UserRepository `@:"Inject"`
 }
 
@@ -370,7 +372,7 @@ complex joins.
 Rays ORM handles this complexity using the `OrmQueryFunc` escape hatch, keeping your repository
 interfaces clean and putting data hydration logic squarely in the hands of the business service layer.
 
-### 1. Relationships & Preloading
+### 1. Relationships and Preloading
 
 Instead of embedding eager-loading logic into the method name string, Rays ORM provides helper
 functions (`WithPreload` and `WithJoins`) that return an `OrmQueryFunc`.
@@ -411,7 +413,7 @@ func (s *DashboardService) GetUserData(userId uint) Error {
 }
 ```
 
-### 2. Pagination & Limits
+### 2. Pagination and Limits
 
 Because `OrmQueryFunc` is simply an alias for `func(*gorm.DB) *gorm.DB`, you can easily write
 your own helpers for features like pagination.
@@ -445,7 +447,7 @@ func (s *UserService) GetRecentUsers(page int) []*User {
 }
 ```
 
-### 3. Raw SQL & Complex Queries
+### 3. Raw SQL and Complex Queries
 
 If you hit the limits of the generated query builder (e.g., complex subqueries, massive data aggregations,
 or highly specific database vendor features), you can bypass the magic method generation entirely.

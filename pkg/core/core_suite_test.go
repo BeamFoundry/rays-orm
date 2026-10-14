@@ -1,5 +1,4 @@
-//nolint:errcheck // To be removed
-package orm_test
+package core_test
 
 import (
 	"context"
@@ -13,7 +12,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	. "github.com/BeamFoundry/rays-orm"
+	_ "github.com/BeamFoundry/rays-orm/internal/autoconfig"
+	. "github.com/BeamFoundry/rays-orm/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
 	. "github.com/BeamFoundry/rays/pkg/testing"
@@ -31,9 +31,9 @@ var _ = BeforeEach(func() {
 		),
 	})
 	Expect(err).NotTo(HaveOccurred())
-	db.AutoMigrate(&User{})
-	db.AutoMigrate(&Animal{})
-	GetContainer().AddBeamFor(db)
+	Expect(db.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	Expect(db.AutoMigrate(&Animal{})).NotTo(HaveOccurred())
+	AddBeamFor(db)
 	GetContainer().EnableScanning()
 })
 
@@ -187,8 +187,8 @@ var _ = Describe("UserRepository", func() {
 		userRepository = &UserRepository{}
 		animalRepository = &AnimalRepository{}
 
-		GetContainer().AddBeamFor(userRepository)
-		GetContainer().AddBeamFor(animalRepository)
+		AddBeamFor(userRepository)
+		AddBeamFor(animalRepository)
 		err := GetContainer().Initialize()
 		Expect(err).NotTo(HaveOccurred())
 
@@ -422,12 +422,12 @@ var _ = Describe("UserRepository", func() {
 
 type UserService struct {
 	Service
-	transactionManager *GormTxManager          `@:"Inject"`
+	transactionManager GormTransactional       `@:"Inject"`
 	userRepository     UserRepositoryInterface `@:"Inject"`
 }
 
 func (this *UserService) TransactionalChangeRollback() {
-	this.transactionManager.Transactional(context.Background(), func() Error {
+	this.transactionManager.Transactional(context.Background(), func(_ *gorm.DB) Error {
 		user, _ := this.userRepository.FindById(1).Get()
 		user.Name = "bar"
 		_, err := this.userRepository.Save(user)
@@ -440,7 +440,7 @@ func (this *UserService) TransactionalChangeRollback() {
 }
 
 func (this *UserService) TransactionalChange() {
-	this.transactionManager.Transactional(context.Background(), func() Error {
+	this.transactionManager.Transactional(context.Background(), func(_ *gorm.DB) Error {
 		user, _ := this.userRepository.FindById(1).Get()
 		user.Name = "bar"
 		_, err := this.userRepository.Save(user)
@@ -473,8 +473,8 @@ var _ = Describe("UserService", func() {
 		userRepository = &UserRepository{}
 		userService = &UserService{}
 
-		GetContainer().AddBeamFor(userRepository)
-		GetContainer().AddBeamFor(userService)
+		AddBeamFor(userRepository)
+		AddBeamFor(userService)
 		err := GetContainer().Initialize()
 		Expect(err).NotTo(HaveOccurred())
 

@@ -87,7 +87,7 @@ package repositories
 
 import (
     "time"
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
 )

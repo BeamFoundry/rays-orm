@@ -1,4 +1,4 @@
-package orm
+package core
 
 import (
 	"iter"
@@ -118,7 +118,7 @@ func (this *gormQueryBuilder[T, ID]) Build(function *reflect.StructField) (*gorm
 	name := CaseUtils(function.Name).Capitalize().String()
 
 	// 1. Verify Prefix
-	if !String(name).StartsWith("Find") && !String(name).StartsWith("Query") {
+	if !String(name).StartsWith("Find") && !String(name).StartsWith("Query") && !String(name).StartsWith("List") {
 		return nil, NewError("IllegalArgumentError", "Function name must start with Find, Query, find, or query")
 	}
 
@@ -242,7 +242,7 @@ func (this *gormQuery[T, ID]) validate() Error {
 	return nil
 }
 
-func (this *gormQuery[T, ID]) Query(tx TxManager[gorm.DB]) func(in []reflect.Value) []reflect.Value {
+func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Value) []reflect.Value {
 	output := this.function.Type.Out(0)
 	one := output == reflect.TypeFor[*T]()
 	multi := output.Kind() == reflect.Slice

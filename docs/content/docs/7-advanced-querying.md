@@ -24,7 +24,7 @@ shape the returned graph.
 package services
 
 import (
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
 )
@@ -63,7 +63,7 @@ package utils
 
 import (
     "gorm.io/gorm"
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
 )
 
 // A custom pagination helper
@@ -99,7 +99,7 @@ mapped to the current Model, correctly bound to any active `ThreadLocal` transac
 package repositories
 
 import (
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
 )
 

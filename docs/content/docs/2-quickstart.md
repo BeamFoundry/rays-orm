@@ -68,7 +68,7 @@ func (this *DbMigrator) PostConstruct() Error {
 ## 3. The Entrypoint
 
 In your `main.go`, you simply need to underscore import the `rays-orm` package. This ensures the framework detects
-the `GormTxManager` and prepares the repository generation hooks.
+the `GormTransactional` and prepares the repository generation hooks.
 
 ```go
 package main

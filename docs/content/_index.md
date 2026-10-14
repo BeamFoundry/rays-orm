@@ -13,11 +13,11 @@ this package completely eliminates database connection boilerplate, automatic re
 generation, and context-passing for transactions.
 
 ### Comprehensive Guide
-1. [Introduction & Architecture](/docs/1-introduction/)
-2. [Quickstart & Setup](/docs/2-quickstart/)
-3. [Auto-Generated Repositories](/docs/3-repositories/)
-4. [ThreadLocal Transactions](/docs/4-transactions/)
-5. [Logging Integration](/docs/5-logging/)
-6. [Testing & Environments](/docs/6-testing-environments/)
-7. [Advanced Querying](/docs/7-advanced-querying/)
-8. [Hooks & Soft Deletes](/docs/8-hooks-and-soft-deletes/)
+1. [Introduction & Architecture](/rays-orm/docs/1-introduction/)
+2. [Quickstart & Setup](/rays-orm/docs/2-quickstart/)
+3. [Auto-Generated Repositories](/rays-orm/docs/3-repositories/)
+4. [ThreadLocal Transactions](/rays-orm/docs/4-transactions/)
+5. [Logging Integration](/rays-orm/docs/5-logging/)
+6. [Testing & Environments](/rays-orm/docs/6-testing-environments/)
+7. [Advanced Querying](/rays-orm/docs/7-advanced-querying/)
+8. [Hooks & Soft Deletes](/rays-orm/docs/8-hooks-and-soft-deletes/)

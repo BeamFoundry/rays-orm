@@ -9,14 +9,14 @@ A common pain point in Go is passing database transaction objects (`*gorm.DB`) e
 every repository function.
 
 Rays ORM utilizes `github.com/timandy/routine` to establish **ThreadLocal** state for your goroutines.
-When you start a transaction via the `GormTxManager`, the transaction is stored in the local thread context.
+When you start a transaction via the `GormTransactional`, the transaction is stored in the local thread context.
 
 When your auto-generated repositories execute queries, they transparently check the ThreadLocal context.
 If a transaction exists, they use it. If not, they use the global `*gorm.DB`.
 
-## Using the `GormTxManager` Closure
+## Using the `GormTransactional` Closure
 
-Inject the `*GormTxManager` into your business logic services to orchestrate complex database operations safely.
+Inject the `GormTransactional` into your business logic services to orchestrate complex database operations safely.
 The `Transactional` closure accepts a `context.Context` (which is passed to GORM's `WithContext`) and manages commits
 and rollbacks automatically based on the returned error.
 
@@ -25,7 +25,7 @@ package services
 
 import (
     "context"
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
 )
@@ -33,7 +33,7 @@ import (
 type UserService struct {
     Service
 
-    txManager *GormTxManager  `@:"Inject"`
+    txManager GormTransactional  `@:"Inject"`
     userRepo  *UserRepository `@:"Inject"`
     auditRepo *AuditRepository`@:"Inject"`
 }
@@ -41,7 +41,7 @@ type UserService struct {
 func (s *UserService) CreateUserWithAudit(ctx context.Context, name string) Error {
 
     // Execute a block of code within a ThreadLocal transaction
-    return s.txManager.Transactional(ctx, func() Error {
+    return s.txManager.Transactional(ctx, func(_ *gorm.DB) Error {
 
         newUser := &User{Name: name}
 
@@ -77,13 +77,13 @@ package services
 import (
     "context"
     "errors"
-    . "github.com/BeamFoundry/rays-orm"
+    . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
 )
 
 type UserServiceImpl struct {
     Service
-    transactionManager *GormTxManager  `@:"Inject"`
+    transactionManager GormTransactional  `@:"Inject"`
     userRepository     *UserRepository `@:"Inject"`
 }
 

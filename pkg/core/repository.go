@@ -1,4 +1,4 @@
-package orm
+package core
 
 import (
 	"reflect"
@@ -8,6 +8,11 @@ import (
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
 )
+
+// GormTransactional represent the interface of a Transactional [gorm.DB]
+type GormTransactional interface {
+	Transactional[gorm.DB]
+}
 
 type OrmRepositoryInterface[T any, K comparable] interface {
 	// Query() lets you execute queries on <T>, calling gorm Model() *gorm.DB first.
@@ -26,8 +31,8 @@ type OrmRepositoryInterface[T any, K comparable] interface {
 
 type OrmRepository[T any, K comparable] struct {
 	Repository
-	transactionManager TxManager[gorm.DB] `@:"Inject"`
-	logger             Logging            `@:"Inject"`
+	transactionManager GormTransactional `@:"Inject"`
+	logger             Logging           `@:"Inject"`
 }
 
 func (this *OrmRepository[T, ID]) Query(queries ...OrmQueryFunc) *gorm.DB {
