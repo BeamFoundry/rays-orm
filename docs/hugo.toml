@@ -1,6 +1,6 @@
 baseURL = 'https://rays.bfdy.dev/rays-orm'
 languageCode = 'en-us'
-title = 'BeamFoundryi Rays Orm'
+title = 'BeamFoundry Rays Orm'
 theme = 'github.com/alex-shpak/hugo-book'
 
 #[module]
