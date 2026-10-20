@@ -1,5 +1,10 @@
 # BeamFoundry Rays ORM ⛁
 
+[![beamfoundry](https://rays.bfdy.dev/rays-orm/rays-orm-bfdy.jpeg)](https://rays.bfdy.dev/rays-orm/)
+
+[![Go Version](https://img.shields.io/badge/Go-1.27+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![codecov](https://codecov.io/gh/BeamFoundry/rays-orm/graph/badge.svg?token=9YA0XCI0U7)](https://codecov.io/gh/BeamFoundry/rays-orm)
+
 **This is an extract of the full documentation available at [rays.bdfy.dev](https://rays.bfdy.dev/rays-orm/).**
 
 **Rays ORM** is the official database integration package for the **BeamFoundry Rays** framework,

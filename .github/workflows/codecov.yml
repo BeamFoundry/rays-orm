@@ -1,0 +1,27 @@
+name: Codecov
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -coverprofile=coverage.txt ./pkg/core
+
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: BeamFoundry/rays-orm
