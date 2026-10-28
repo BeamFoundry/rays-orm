@@ -304,7 +304,6 @@ func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Valu
 			case optional:
 				var opt Optional[*T]
 				if res.Error == nil {
-					//nolint:errcheck // Won't check
 					(&opt).SetValue(&t)
 				}
 				ret = append(ret, reflect.ValueOf(opt))
