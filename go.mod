@@ -3,7 +3,7 @@ module github.com/BeamFoundry/rays-orm
 go 1.27
 
 require (
-	github.com/BeamFoundry/rays v0.2.0
+	github.com/BeamFoundry/rays v0.2.2
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	github.com/orandin/slog-gorm v1.4.0
