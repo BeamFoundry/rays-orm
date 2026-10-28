@@ -9,6 +9,7 @@ import (
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
 	. "github.com/BeamFoundry/rays/pkg/util"
+	. "github.com/BeamFoundry/rays/pkg/util/stream"
 	"gorm.io/gorm"
 )
 
@@ -118,8 +119,8 @@ func (this *gormQueryBuilder[T, ID]) Build(function *reflect.StructField) (*gorm
 	name := CaseUtils(function.Name).Capitalize().String()
 
 	// 1. Verify Prefix
-	if !String(name).StartsWith("Find") && !String(name).StartsWith("Query") && !String(name).StartsWith("List") {
-		return nil, NewError("IllegalArgumentError", "Function name must start with Find, Query, find, or query")
+	if !String(name).StartsWith("Find") && !String(name).StartsWith("Query") && !String(name).StartsWith("List") && !String(name).StartsWith("Stream") {
+		return nil, NewError("IllegalArgumentError", "Function name must start with Find, Query, List, or Stream")
 	}
 
 	// 2. Find the "By" separator
@@ -233,9 +234,10 @@ func (this *gormQuery[T, ID]) validate() Error {
 	sliceTType := reflect.SliceOf(entity)
 	optionalTType := reflect.TypeFor[Optional[*T]]()
 	gormType := reflect.TypeFor[*gorm.DB]()
+	streamTType := reflect.TypeFor[Stream[T]]()
 
-	if retType != ptrTType && retType != sliceTType && retType != optionalTType && retType != gormType {
-		return NewError("IllegalArgumentError", "Invalid return type; must be *T, []T, Optional[*T] or *gorm.DB")
+	if retType != ptrTType && retType != sliceTType && retType != optionalTType && retType != gormType && retType != streamTType {
+		return NewError("IllegalArgumentError", "Invalid return type; must be *T, []T, Optional[*T], Stream[T] or *gorm.DB")
 	}
 
 	this.logger.Info("Created repository function", "entity", entity, "function", this.function.Name)
@@ -247,6 +249,7 @@ func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Valu
 	one := output == reflect.TypeFor[*T]()
 	multi := output.Kind() == reflect.Slice
 	optional := output == reflect.TypeFor[Optional[*T]]()
+	stream := output == reflect.TypeFor[Stream[T]]()
 
 	var hasError bool
 	if this.function.Type.NumOut() > 1 && this.function.Type.Out(1) == reflect.TypeFor[Error]() {
@@ -292,11 +295,17 @@ func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Valu
 		ret := []reflect.Value{}
 		var res *gorm.DB
 
-		if multi {
+		switch {
+		case multi:
 			var t []T
 			res = db.Find(&t)
 			ret = append(ret, reflect.ValueOf(t))
-		} else {
+		case stream:
+			var t []T
+			res = db.Find(&t)
+			s := Stream[T]{}.FromSlice(t)
+			ret = append(ret, reflect.ValueOf(s))
+		default:
 			var t T
 			res = db.First(&t)
 
