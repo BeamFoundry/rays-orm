@@ -14,6 +14,7 @@
 // This project divides its code between the following packages :
 //
 //   - [github.com/BeamFoundry/rays-orm/pkg/core]: Contains all the repository interfaces and objects.
+//   - [github.com/BeamFoundry/rays-orm/pkg/util]: Contains query helpers and OrmQueryFunc utilities.
 package rays_orm //nolint:revive // Ignoring package naming hint
 
 import (
