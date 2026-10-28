@@ -30,7 +30,7 @@ the name of the function field and **automatically generates the GORM query code
 A query method name must follow a strict grammatical structure:
 `[Prefix][Subject]By[Conditions]OrderBy[SortRules]`
 
-1.  **Prefix:** Must be `find`, `Find`, `query`, or `Query`.
+1.  **Prefix:** Must be `find`, `Find`, `query`, `Query`, `list`, `List`, `stream`, or `Stream`.
 2.  **Subject:** (Optional) Capitalized words describing what is being found (e.g., `ActiveUsers`).
 3.  **Separator:** Must include `By`.
 4.  **Conditions:** Field names followed by an optional Operator, separated by `And` or `Or`.
@@ -69,7 +69,7 @@ entirely protected against SQL injection attacks by default.
 
 Your generated function can define the following return signatures:
 * **Single Entity:** `*T` or `Optional[*T]`
-* **Multiple Entities:** `[]*T`
+* **Multiple Entities:** `[]T` or `Stream[T]` (Java 8-style lazy Stream from `github.com/BeamFoundry/rays/pkg/util/stream`)
 * **Query Builder:** `*gorm.DB` (Returns the query before mapping to an object)
 * **Error Handling:** You may append `Error` as a second return parameter to any of the above to catch database faults.
 

@@ -17,6 +17,7 @@ import (
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
 	. "github.com/BeamFoundry/rays/pkg/testing"
+	. "github.com/BeamFoundry/rays/pkg/util/stream"
 )
 
 func TestOrm(t *testing.T) {
@@ -69,6 +70,9 @@ type UserRepositoryInterface interface {
 	// FindByUserNameWithAnimals(string) *User
 	// FindByUserNameWithAnimalsOrderByName(string) *User
 	FindAllByName(string) []User
+	FindStreamByName(string) Stream[User]
+	StreamAllByName(string) Stream[User]
+	FindStreamWithErrorByName(string) (Stream[User], Error)
 	FindOneByName(string) Optional[*User]
 	FindAllByAgeIn([]uint) []User
 	FindAllByUserNameAndAge(string, uint) []User
@@ -88,6 +92,9 @@ type UserRepository struct {
 	// findByUserNameWithAnimals               func(string) *User
 	// findByUserNameWithAnimalsOrderByName    func(string) *User
 	findAllByName                           func(string) []User
+	findStreamByName                        func(string) Stream[User]
+	streamAllByName                         func(string) Stream[User]
+	findStreamWithErrorByName               func(string) (Stream[User], Error)
 	findOneByName                           func(string) Optional[*User]
 	findAllByAgeIn                          func([]uint) []User
 	findAllByUserNameAndAge                 func(string, uint) []User
@@ -120,6 +127,7 @@ type UserRepository struct {
 	findBadPointerByName func(string) *Foo
 	findBadStructByName  func(string) Foo
 	findBadSliceByName   func(string) []Foo
+	findBadStreamByName  func(string) Stream[Foo]
 	findBadElemByName    func(string) string
 	// findDistinctByName    func(string) []User
 	findByNameOrderByFoo  func(string) []User
@@ -140,6 +148,18 @@ func (this *UserRepository) FindByUserName(name string) *User {
 
 func (this *UserRepository) FindWithErrorByUserName(name string) (*User, Error) {
 	return this.findWithErrorByUserName(name)
+}
+
+func (this *UserRepository) FindStreamByName(name string) Stream[User] {
+	return this.findStreamByName(name)
+}
+
+func (this *UserRepository) StreamAllByName(name string) Stream[User] {
+	return this.streamAllByName(name)
+}
+
+func (this *UserRepository) FindStreamWithErrorByName(name string) (Stream[User], Error) {
+	return this.findStreamWithErrorByName(name)
 }
 
 /*
@@ -247,6 +267,42 @@ var _ = Describe("UserRepository", func() {
 		u := users[0]
 		Expect(u.ID).To(BeNumerically("==", 1))
 		Expect(u.Name).To(Equal("Dorothy"))
+	})
+
+	It("can find many records returning a Stream", func() {
+		u := []*User{
+			{Name: "Dorothy", UserName: "dorothy2", Age: 30},
+			{Name: "Dorothy", UserName: "dorothy3", Age: 40},
+		}
+		_, err := userRepository.SaveAll(u)
+		Expect(err).NotTo(HaveOccurred())
+
+		st := userRepository.FindStreamByName("Dorothy")
+		names := st.Filter(func(user User) bool { return user.Age >= 30 }).
+			SortedBy(func(user User) int { return int(user.Age) }).
+			Map(func(user User) string { return user.UserName }).
+			ToSlice()
+		Expect(names).To(Equal([]string{"dorothy2", "dorothy3"}))
+	})
+
+	It("can use Stream prefix to return a Stream", func() {
+		st := userRepository.StreamAllByName("Dorothy")
+		count := st.Count()
+		Expect(count).To(BeNumerically("==", 1))
+	})
+
+	It("can return a Stream with Error", func() {
+		st, err := userRepository.FindStreamWithErrorByName("Dorothy")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Count()).To(BeNumerically("==", 1))
+
+		stEmpty, err := userRepository.FindStreamWithErrorByName("NonExistent")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stEmpty.Count()).To(BeNumerically("==", 0))
+	})
+
+	It("rejects invalid Stream return type with mismatched entity", func() {
+		Expect(userRepository.findBadStreamByName).To(BeNil())
 	})
 
 	It("can find optionally a record", func() {
