@@ -17,22 +17,26 @@ const DefaultPageSize = 10
 // If pageSize <= 0, pageSize defaults to DefaultPageSize.
 // If (page - 1) * pageSize exceeds the maximum integer value, a query error is set on the database query.
 func Paginate(page, pageSize int) OrmQueryFunc {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = DefaultPageSize
+	}
 	return func(db *gorm.DB) *gorm.DB {
-		if page <= 0 {
-			page = 1
-		}
-		if pageSize <= 0 {
-			pageSize = DefaultPageSize
-		}
 		p := page - 1
 		if p > math.MaxInt/pageSize {
+			tx := db.Session(&gorm.Session{})
 			err := NewError("PaginationOverflowError", "pagination offset overflow", "page", page, "pageSize", pageSize)
-			if addErr := db.AddError(err); addErr != nil {
-				return db
+			if addErr := tx.AddError(err); addErr != nil {
+				return tx
 			}
-			return db
+			return tx
 		}
 		offset := p * pageSize
+		if offset == 0 {
+			return db.Offset(-1).Limit(pageSize)
+		}
 		return db.Offset(offset).Limit(pageSize)
 	}
 }
@@ -40,7 +44,15 @@ func Paginate(page, pageSize int) OrmQueryFunc {
 // WithLimit returns an OrmQueryFunc that limits the number of results returned by the query.
 func WithLimit(limit int) OrmQueryFunc {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Limit(limit)
+		tx := db.Limit(limit)
+		if c, ok := tx.Statement.Clauses["LIMIT"]; ok {
+			if l, ok := c.Expression.(clause.Limit); ok {
+				l.Limit = &limit
+				c.Expression = l
+				tx.Statement.Clauses["LIMIT"] = c
+			}
+		}
+		return tx
 	}
 }
 
@@ -52,6 +64,9 @@ func Limit(limit int) OrmQueryFunc {
 // WithOffset returns an OrmQueryFunc that sets the number of records to skip before starting to return records.
 func WithOffset(offset int) OrmQueryFunc {
 	return func(db *gorm.DB) *gorm.DB {
+		if offset == 0 {
+			return db.Offset(-1)
+		}
 		return db.Offset(offset)
 	}
 }
