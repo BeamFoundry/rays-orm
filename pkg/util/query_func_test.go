@@ -3,6 +3,7 @@ package util_test
 import (
 	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,9 @@ var _ = Describe("OrmQueryFunc Utilities", func() {
 		var err error
 		db, err = gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 		Expect(err).NotTo(HaveOccurred())
+		sqlDB, err := db.DB()
+		Expect(err).NotTo(HaveOccurred())
+		sqlDB.SetMaxOpenConns(1)
 		Expect(db.AutoMigrate(&User{}, &Animal{})).NotTo(HaveOccurred())
 
 		users := []User{
@@ -79,6 +83,22 @@ var _ = Describe("OrmQueryFunc Utilities", func() {
 		Expect(pageDefault).To(HaveLen(4))
 	})
 
+	It("supports concurrent Paginate usage without race conditions", func() {
+		fn := Paginate(0, 0)
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer GinkgoRecover()
+				defer wg.Done()
+				var users []User
+				Expect(db.Scopes(fn).Find(&users).Error).NotTo(HaveOccurred())
+				Expect(users).To(HaveLen(4))
+			}()
+		}
+		wg.Wait()
+	})
+
 	It("returns an error on pagination offset overflow", func() {
 		var users []User
 		err := db.Scopes(Paginate(math.MaxInt, 10)).Find(&users).Error
@@ -96,6 +116,18 @@ var _ = Describe("OrmQueryFunc Utilities", func() {
 		Expect(langErr2.Name()).To(Equal("PaginationOverflowError"))
 	})
 
+	It("does not leave reusable db handle in error state on pagination offset overflow", func() {
+		fn := Paginate(math.MaxInt, 10)
+		tx := fn(db)
+		Expect(tx.Error).To(HaveOccurred())
+		Expect(db.Error).ToNot(HaveOccurred())
+
+		// A subsequent query using db should still work
+		var users []User
+		Expect(db.Find(&users).Error).NotTo(HaveOccurred())
+		Expect(users).To(HaveLen(4))
+	})
+
 	It("limits results with Limit and WithLimit", func() {
 		var users []User
 		Expect(db.Scopes(Limit(2)).Find(&users).Error).NotTo(HaveOccurred())
@@ -106,11 +138,47 @@ var _ = Describe("OrmQueryFunc Utilities", func() {
 		Expect(usersWithLimit).To(HaveLen(2))
 	})
 
+	It("enforces zero rows when combining scopes with WithLimit(0)", func() {
+		var users []User
+		Expect(db.Scopes(WithLimit(10), WithLimit(0)).Find(&users).Error).NotTo(HaveOccurred())
+		Expect(users).To(BeEmpty())
+
+		var usersWithOffset []User
+		Expect(db.Scopes(WithOffset(1), WithLimit(10), WithLimit(0)).Find(&usersWithOffset).Error).NotTo(HaveOccurred())
+		Expect(usersWithOffset).To(BeEmpty())
+
+		var usersOverrideZero []User
+		Expect(db.Scopes(WithLimit(0), WithLimit(2)).Find(&usersOverrideZero).Error).NotTo(HaveOccurred())
+		Expect(usersOverrideZero).To(HaveLen(2))
+	})
+
 	It("offsets results with WithOffset", func() {
 		var users []User
 		Expect(db.Scopes(WithOffset(2), OrderByAsc("id")).Find(&users).Error).NotTo(HaveOccurred())
 		Expect(users).To(HaveLen(2))
 		Expect(users[0].UserName).To(Equal("charlie"))
+	})
+
+	It("cancels existing offset when zero offset is requested in WithOffset and Paginate", func() {
+		var users []User
+		// WithOffset(0) cancels prior offset
+		Expect(db.Offset(2).Scopes(WithOffset(0), OrderByAsc("id")).Find(&users).Error).NotTo(HaveOccurred())
+		Expect(users).To(HaveLen(4))
+		Expect(users[0].UserName).To(Equal("alice"))
+
+		// Paginate(1, 2) cancels prior offset
+		var page1 []User
+		Expect(db.Offset(2).Scopes(Paginate(1, 2), OrderByAsc("id")).Find(&page1).Error).NotTo(HaveOccurred())
+		Expect(page1).To(HaveLen(2))
+		Expect(page1[0].UserName).To(Equal("alice"))
+		Expect(page1[1].UserName).To(Equal("bob"))
+
+		// Paginate(2, 2) sets new nonzero offset
+		var page2 []User
+		Expect(db.Offset(1).Scopes(Paginate(2, 2), OrderByAsc("id")).Find(&page2).Error).NotTo(HaveOccurred())
+		Expect(page2).To(HaveLen(2))
+		Expect(page2[0].UserName).To(Equal("charlie"))
+		Expect(page2[1].UserName).To(Equal("alice2"))
 	})
 
 	It("preloads associations", func() {
