@@ -31,13 +31,19 @@ A query method name must follow a strict grammatical structure:
 `[Prefix][Subject]By[Conditions]OrderBy[SortRules]`
 
 1.  **Prefix:** Must be `find`, `Find`, `query`, `Query`, `list`, `List`, `stream`, or `Stream`.
+    * Use `find`/`Find` or `query`/`Query` for single entities (`*T`, `Optional[*T]`) or collections (`[]T`).
+    * Use `list`/`List` for retrieving multiple entities into a slice (`[]T`).
+    * Use `stream`/`Stream` for returning lazy, Java 8-style streams (`Stream[T]`).
 2.  **Subject:** (Optional) Capitalized words describing what is being found (e.g., `ActiveUsers`).
 3.  **Separator:** Must include `By`.
 4.  **Conditions:** Field names followed by an optional Operator, separated by `And` or `Or`.
 5.  **OrderBy:** (Optional) The keyword `OrderBy` followed by one or more sorting rules. Each rule consists of a field name
 and an optional direction (`Asc` or `Desc`, defaulting to `Desc`). Multiple sorting rules must be separated by the `And` keyword.
 
-*Example:* `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscAndCreatedAtDesc`
+*Examples:*
+* `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscAndCreatedAtDesc`
+* `listUsersByStatusAndAgeGreaterThan(string, uint) ([]User, Error)`
+* `streamAllByStatusOrderByCreatedAtDesc(string) Stream[User]`
 
 ### Supported Operators
 
@@ -73,6 +79,20 @@ Your generated function can define the following return signatures:
 * **Query Builder:** `*gorm.DB` (Returns the query before mapping to an object)
 * **Error Handling:** You may append `Error` as a second return parameter to any of the above to catch database faults.
 
+When returning a `Stream[T]`, you can leverage functional transformations like `.Filter(...)`, `.Map(...)`, `.SortedBy(...)`, and `.ToSlice()`:
+
+```go
+stream, err := userRepo.StreamUsersByAgeGreaterThan(18)
+if err != nil {
+    return err
+}
+
+adultNames := stream.
+    Filter(func(u User) bool { return u.Age >= 21 }).
+    Map(func(u User) string { return u.Name }).
+    ToSlice()
+```
+
 ### The Escape Hatch: `OrmQueryFunc`
 
 If you need dynamic query logic that cannot be expressed in the method name, you can add a variadic parameter of type `...OrmQueryFunc`
@@ -90,12 +110,43 @@ import (
     . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
+    . "github.com/BeamFoundry/rays/pkg/util/stream"
 )
+
+type Profile struct {
+    ID        uint
+    UserID    uint
+    Bio       string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Comment struct {
+    ID        uint
+    PostID    uint
+    Content   string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Post struct {
+    ID        uint
+    UserID    uint
+    Title     string
+    Status    string
+    Comments  []Comment
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
 
 type User struct {
     ID        uint
     Name      string
+    Status    string
+    Role      string
     Age       uint
+    Profile   Profile
+    Posts     []Post
     CreatedAt time.Time
     UpdatedAt time.Time
 }
@@ -105,17 +156,23 @@ type UserRepositoryInterface interface {
     OrmRepositoryInterface[User, uint]
 
     FindByName(name string) *User
-    FindActiveUsers(status string, minAge int) ([]*User, Error)
-    FindByAgeRangeDynamic(min, max int, customFilters ...OrmQueryFunc) []*User
+    ListActiveUsers(status string, minAge uint) ([]User, Error)
+    ListByStatus(status string, customFilters ...OrmQueryFunc) ([]User, Error)
+    FindByRole(role string, customFilters ...OrmQueryFunc) []User
+    StreamUsersByAgeGreaterThan(minAge uint) (Stream[User], Error)
+    FindByAgeRangeDynamic(min, max uint, customFilters ...OrmQueryFunc) []User
 }
 
 // 2. Define the implementation
 type UserRepository struct {
     OrmRepository[User, uint]
 
-    findByName                        func(string) *User
-    findByStatusAndAgeGreaterThan     func(string, int) ([]*User, Error)
-    findByAgeBetweenOrderByNameAscAndIdDesc func(int, int, ...OrmQueryFunc) []*User
+    findByName                              func(string) *User
+    listByStatusAndAgeGreaterThan           func(string, uint) ([]User, Error)
+    listByStatus                            func(string, ...OrmQueryFunc) ([]User, Error)
+    findByRole                              func(string, ...OrmQueryFunc) []User
+    streamByAgeGreaterThan                  func(uint) (Stream[User], Error)
+    findByAgeBetweenOrderByNameAscAndIdDesc func(uint, uint, ...OrmQueryFunc) []User
 }
 
 // 3. Expose the generated functions
@@ -123,11 +180,23 @@ func (this *UserRepository) FindByName(name string) *User {
     return this.findByName(name)
 }
 
-func (this *UserRepository) FindActiveUsers(status string, minAge int) ([]*User, Error) {
-    return this.findByStatusAndAgeGreaterThan(status, minAge)
+func (this *UserRepository) ListActiveUsers(status string, minAge uint) ([]User, Error) {
+    return this.listByStatusAndAgeGreaterThan(status, minAge)
 }
 
-func (this *UserRepository) FindByAgeRangeDynamic(min, max int, customFilters ...OrmQueryFunc) []*User {
+func (this *UserRepository) ListByStatus(status string, customFilters ...OrmQueryFunc) ([]User, Error) {
+    return this.listByStatus(status, customFilters...)
+}
+
+func (this *UserRepository) FindByRole(role string, customFilters ...OrmQueryFunc) []User {
+    return this.findByRole(role, customFilters...)
+}
+
+func (this *UserRepository) StreamUsersByAgeGreaterThan(minAge uint) (Stream[User], Error) {
+    return this.streamByAgeGreaterThan(minAge)
+}
+
+func (this *UserRepository) FindByAgeRangeDynamic(min, max uint, customFilters ...OrmQueryFunc) []User {
     return this.findByAgeBetweenOrderByNameAscAndIdDesc(min, max, customFilters...)
 }
 ```

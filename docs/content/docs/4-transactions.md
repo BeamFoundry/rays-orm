@@ -25,6 +25,7 @@ package services
 
 import (
     "context"
+    "gorm.io/gorm"
     . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
@@ -52,7 +53,7 @@ func (s *UserService) CreateUserWithAudit(ctx context.Context, name string) Erro
         }
 
         // 2. This custom query also participates in the transaction
-        auditLog := &Audit{Action: "USER_CREATED", TargetID: newUser.Id()}
+        auditLog := &Audit{Action: "USER_CREATED", TargetID: newUser.ID}
         _, err = s.auditRepo.Save(auditLog)
         if err != nil {
             return err // Triggers rollback

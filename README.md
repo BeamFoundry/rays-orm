@@ -243,12 +243,40 @@ import (
     . "github.com/BeamFoundry/rays/pkg/util/stream"
 )
 
+type Profile struct {
+    ID        uint
+    UserID    uint
+    Bio       string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Comment struct {
+    ID        uint
+    PostID    uint
+    Content   string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
+type Post struct {
+    ID        uint
+    UserID    uint
+    Title     string
+    Status    string
+    Comments  []Comment
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+
 type User struct {
     ID        uint
     Name      string
     Status    string
     Role      string
     Age       uint
+    Profile   Profile
+    Posts     []Post
     CreatedAt time.Time
     UpdatedAt time.Time
 }
@@ -325,6 +353,7 @@ package services
 
 import (
     "context"
+    "gorm.io/gorm"
     . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/lang"
@@ -341,7 +370,7 @@ type UserService struct {
 func (s *UserService) CreateUserWithAudit(ctx context.Context, name string) Error {
 
     // Execute a block of code within a ThreadLocal transaction
-    return s.txManager.Transactional(ctx, func() Error {
+    return s.txManager.Transactional(ctx, func(_ *gorm.DB) Error {
 
         newUser := &User{Name: name}
 
@@ -352,7 +381,7 @@ func (s *UserService) CreateUserWithAudit(ctx context.Context, name string) Erro
         }
 
         // 2. This custom query also participates in the transaction
-        auditLog := &Audit{Action: "USER_CREATED", TargetID: newUser.Id()}
+        auditLog := &Audit{Action: "USER_CREATED", TargetID: newUser.ID}
         _, err = s.auditRepo.Save(auditLog)
         if err != nil {
             return err // Triggers rollback
@@ -459,7 +488,7 @@ All helpers return an `OrmQueryFunc` (an alias for `func(*gorm.DB) *gorm.DB`) th
 
 ### 1. Relationships and Preloading
 
-Instead of embedding eager-loading logic into the method name string, use `WithPreload` and `WithJoins` to dynamically specify association loading:
+Instead of embedding eager-loading logic into the method name string, use `WithPreload` and `WithJoins` to dynamically specify association loading on models with defined relationships (such as `User.Profile`, `User.Posts`, and `Post.Comments`):
 
 ```go
 package services
@@ -531,7 +560,7 @@ You can compose multiple query functions into a reusable scope:
 ```go
 activeAuditedScope := Combine(
     WithWhere("status = ?", "ACTIVE"),
-    WithPreload("AuditLogs"),
+    WithPreload("Posts"),
     OrderByDesc("created_at"),
 )
 
