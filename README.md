@@ -33,7 +33,7 @@ This allows you to use types, query helpers, and stream primitives directly with
 ### Core Architectural Features
 
 1. **Auto-Generated Repository Methods:** By simply defining a function signature like `findByName func(string) *User`,
-  `listActiveUsersByStatus func(string) []User`, or `streamAllByCreatedAtDesc func() Stream[User]` on your repository struct,
+  `listActiveUsersByStatus func(string) []User`, or `streamAllByOrderByCreatedAtDesc func() Stream[User]` on your repository struct,
   Rays ORM will automatically generate the underlying GORM query logic and bind it to that field during the container's wiring phase.
 2. **ThreadLocal Transactions:** Using `github.com/timandy/routine`, Rays ORM implements true ThreadLocal storage for Go.
   When a Service starts a transaction, the `*gorm.DB` transaction object is bound to the current goroutine.
@@ -246,6 +246,8 @@ import (
 type User struct {
     ID        uint
     Name      string
+    Status    string
+    Role      string
     Age       uint
     CreatedAt time.Time
     UpdatedAt time.Time
@@ -257,6 +259,8 @@ type UserRepositoryInterface interface {
 
     FindByName(name string) *User
     ListActiveUsers(status string, minAge int) ([]User, Error)
+    ListByStatus(status string, customFilters ...OrmQueryFunc) []User
+    FindByRole(role string, customFilters ...OrmQueryFunc) []User
     StreamUsersByAgeGreaterThan(minAge int) (Stream[User], Error)
     FindByAgeRangeDynamic(min, max int, customFilters ...OrmQueryFunc) []User
 }
@@ -267,6 +271,8 @@ type UserRepository struct {
 
     findByName                              func(string) *User
     listByStatusAndAgeGreaterThan           func(string, int) ([]User, Error)
+    listByStatus                            func(string, ...OrmQueryFunc) []User
+    findByRole                              func(string, ...OrmQueryFunc) []User
     streamByAgeGreaterThan                  func(int) (Stream[User], Error)
     findByAgeBetweenOrderByNameAscAndIdDesc func(int, int, ...OrmQueryFunc) []User
 }
@@ -278,6 +284,14 @@ func (this *UserRepository) FindByName(name string) *User {
 
 func (this *UserRepository) ListActiveUsers(status string, minAge int) ([]User, Error) {
     return this.listByStatusAndAgeGreaterThan(status, minAge)
+}
+
+func (this *UserRepository) ListByStatus(status string, customFilters ...OrmQueryFunc) []User {
+    return this.listByStatus(status, customFilters...)
+}
+
+func (this *UserRepository) FindByRole(role string, customFilters ...OrmQueryFunc) []User {
+    return this.findByRole(role, customFilters...)
 }
 
 func (this *UserRepository) StreamUsersByAgeGreaterThan(minAge int) (Stream[User], Error) {
@@ -420,7 +434,7 @@ import (
 
 ### Quick Reference: Built-in `OrmQueryFunc` Helpers
 
-All helpers return an `OrmQueryFunc` (an alias for `func(*gorm.DB) *gorm.DB`) that can be passed to any repository method or to `repo.Query()`:
+All helpers return an `OrmQueryFunc` (an alias for `func(*gorm.DB) *gorm.DB`) that can be passed to `repo.Query(...)` or to repository methods declaring a variadic `...OrmQueryFunc` parameter (methods whose signatures do not declare `...OrmQueryFunc` cannot accept query helpers):
 
 | Category | Function | Signature | Description |
 |---|---|---|---|
