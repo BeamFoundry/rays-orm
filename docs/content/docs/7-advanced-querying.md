@@ -72,16 +72,13 @@ type DashboardService struct {
 }
 
 func (s *DashboardService) GetUserData(userId uint) Error {
-    // 1. Fetching just the user (Lightweight ID-only base method)
-    user, _ := s.userRepo.FindById(userId).Get()
-
-    // 2. Fetching the user WITH their Profile relation (Eager Loading via Query with WithPreload)
+    // 1. Fetching the user WITH their Profile relation (Eager Loading via Query with WithPreload)
     var userWithProfile User
     if err := s.userRepo.Query(WithPreload("Profile")).First(&userWithProfile, userId).Error; err != nil {
         return NewErrorFrom(err)
     }
 
-    // 3. Complex Nested Preloading
+    // 2. Complex Nested Preloading
     var detailedUser User
     if err := s.userRepo.Query(
         WithPreload("Profile"),
