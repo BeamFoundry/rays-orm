@@ -38,7 +38,7 @@ A query method name must follow a strict grammatical structure:
 3.  **Separator:** Must include `By`.
 4.  **Conditions:** Field names followed by an optional Operator, separated by `And` or `Or`.
 5.  **OrderBy:** (Optional) The keyword `OrderBy` followed by one or more sorting rules. Each rule consists of a field name
-and an optional direction (`Asc` or `Desc`, defaulting to `Desc`). Multiple sorting rules are chained directly without separators.
+and an optional direction (`Asc` or `Desc`, defaulting to `Asc`). Multiple sorting rules are chained directly without separators.
 
 *Examples:*
 * `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscCreatedAtDesc`
