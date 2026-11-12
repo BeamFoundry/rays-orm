@@ -33,7 +33,7 @@ This allows you to use types, query helpers, and stream primitives directly with
 ### Core Architectural Features
 
 1. **Auto-Generated Repository Methods:** By simply defining a function signature like `findByName func(string) *User`,
-  `listActiveUsersByStatus func(string) []User`, or `streamAllByOrderByCreatedAtDesc func() Stream[User]` on your repository struct,
+  `listActiveUsersByStatus func(string) []User`, or `streamAllByStatusOrderByCreatedAtDesc func(string) Stream[User]` on your repository struct,
   Rays ORM will automatically generate the underlying GORM query logic and bind it to that field during the container's wiring phase.
 2. **ThreadLocal Transactions:** Using `github.com/timandy/routine`, Rays ORM implements true ThreadLocal storage for Go.
   When a Service starts a transaction, the `*gorm.DB` transaction object is bound to the current goroutine.
@@ -172,8 +172,8 @@ and an optional direction (`Asc` or `Desc`, defaulting to `Desc`). Multiple sort
 
 *Examples:*
 * `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscAndCreatedAtDesc`
-* `listUsersByStatusAndAgeGreaterThan(string, int) ([]User, Error)`
-* `streamAllByOrderByCreatedAtDesc() Stream[User]`
+* `listUsersByStatusAndAgeGreaterThan(string, uint) ([]User, Error)`
+* `streamAllByStatusOrderByCreatedAtDesc(string) Stream[User]`
 
 #### Supported Operators
 
@@ -258,11 +258,11 @@ type UserRepositoryInterface interface {
     OrmRepositoryInterface[User, uint]
 
     FindByName(name string) *User
-    ListActiveUsers(status string, minAge int) ([]User, Error)
-    ListByStatus(status string, customFilters ...OrmQueryFunc) []User
+    ListActiveUsers(status string, minAge uint) ([]User, Error)
+    ListByStatus(status string, customFilters ...OrmQueryFunc) ([]User, Error)
     FindByRole(role string, customFilters ...OrmQueryFunc) []User
-    StreamUsersByAgeGreaterThan(minAge int) (Stream[User], Error)
-    FindByAgeRangeDynamic(min, max int, customFilters ...OrmQueryFunc) []User
+    StreamUsersByAgeGreaterThan(minAge uint) (Stream[User], Error)
+    FindByAgeRangeDynamic(min, max uint, customFilters ...OrmQueryFunc) []User
 }
 
 // 2. Define the implementation
@@ -270,11 +270,11 @@ type UserRepository struct {
     OrmRepository[User, uint]
 
     findByName                              func(string) *User
-    listByStatusAndAgeGreaterThan           func(string, int) ([]User, Error)
-    listByStatus                            func(string, ...OrmQueryFunc) []User
+    listByStatusAndAgeGreaterThan           func(string, uint) ([]User, Error)
+    listByStatus                            func(string, ...OrmQueryFunc) ([]User, Error)
     findByRole                              func(string, ...OrmQueryFunc) []User
-    streamByAgeGreaterThan                  func(int) (Stream[User], Error)
-    findByAgeBetweenOrderByNameAscAndIdDesc func(int, int, ...OrmQueryFunc) []User
+    streamByAgeGreaterThan                  func(uint) (Stream[User], Error)
+    findByAgeBetweenOrderByNameAscAndIdDesc func(uint, uint, ...OrmQueryFunc) []User
 }
 
 // 3. Expose the generated functions
@@ -282,11 +282,11 @@ func (this *UserRepository) FindByName(name string) *User {
     return this.findByName(name)
 }
 
-func (this *UserRepository) ListActiveUsers(status string, minAge int) ([]User, Error) {
+func (this *UserRepository) ListActiveUsers(status string, minAge uint) ([]User, Error) {
     return this.listByStatusAndAgeGreaterThan(status, minAge)
 }
 
-func (this *UserRepository) ListByStatus(status string, customFilters ...OrmQueryFunc) []User {
+func (this *UserRepository) ListByStatus(status string, customFilters ...OrmQueryFunc) ([]User, Error) {
     return this.listByStatus(status, customFilters...)
 }
 
@@ -294,11 +294,11 @@ func (this *UserRepository) FindByRole(role string, customFilters ...OrmQueryFun
     return this.findByRole(role, customFilters...)
 }
 
-func (this *UserRepository) StreamUsersByAgeGreaterThan(minAge int) (Stream[User], Error) {
+func (this *UserRepository) StreamUsersByAgeGreaterThan(minAge uint) (Stream[User], Error) {
     return this.streamByAgeGreaterThan(minAge)
 }
 
-func (this *UserRepository) FindByAgeRangeDynamic(min, max int, customFilters ...OrmQueryFunc) []User {
+func (this *UserRepository) FindByAgeRangeDynamic(min, max uint, customFilters ...OrmQueryFunc) []User {
     return this.findByAgeBetweenOrderByNameAscAndIdDesc(min, max, customFilters...)
 }
 ```
@@ -478,18 +478,24 @@ type DashboardService struct {
 
 func (s *DashboardService) GetUserData(userId uint) Error {
 
-    // 1. Fetching just the user (Lightweight)
+    // 1. Fetching just the user (Lightweight ID-only base method)
     user, _ := s.userRepo.FindById(userId).Get()
 
-    // 2. Fetching the user WITH their Profile relation (Eager Loading)
-    userWithProfile, _ := s.userRepo.FindById(userId, WithPreload("Profile")).Get()
+    // 2. Fetching the user WITH their Profile relation (Eager Loading via Query with WithPreload)
+    var userWithProfile User
+    if err := s.userRepo.Query(WithPreload("Profile")).First(&userWithProfile, userId).Error; err != nil {
+        return NewErrorFrom(err)
+    }
 
     // 3. Complex Nested Preloading
-    detailedUser, _ := s.userRepo.FindById(userId,
+    var detailedUser User
+    if err := s.userRepo.Query(
         WithPreload("Profile"),
         WithPreload("Posts", "status = ?", "published"), // Conditional preload
         WithPreload("Posts.Comments"),                   // Nested preload
-    ).Get()
+    ).First(&detailedUser, userId).Error; err != nil {
+        return NewErrorFrom(err)
+    }
 
     return nil
 }
@@ -500,13 +506,17 @@ func (s *DashboardService) GetUserData(userId uint) Error {
 Using the built-in `Paginate`, `WithLimit`, and `WithOffset` helpers from `pkg/util`:
 
 ```go
-func (s *UserService) GetRecentUsers(page int) []User {
+func (s *UserService) GetRecentUsers(page int) ([]User, Error) {
     // Paginate(page, pageSize) handles 1-indexed pagination with safe defaults & overflow protection
-    return s.userRepo.ListByStatus(
+    users, err := s.userRepo.ListByStatus(
         "ACTIVE",
         Paginate(page, 20),
         OrderByDesc("created_at"),
     )
+    if err != nil {
+        return nil, err
+    }
+    return users, nil
 }
 ```
 
