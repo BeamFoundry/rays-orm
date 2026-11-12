@@ -86,7 +86,7 @@ var _ = Describe("OrmQueryFunc Utilities", func() {
 	It("supports concurrent Paginate usage without race conditions", func() {
 		fn := Paginate(0, 0)
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			wg.Add(1)
 			go func() {
 				defer GinkgoRecover()
