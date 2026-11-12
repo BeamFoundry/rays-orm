@@ -168,10 +168,10 @@ A query method name must follow a strict grammatical structure:
 3.  **Separator:** Must include `By`.
 4.  **Conditions:** Field names followed by an optional Operator, separated by `And` or `Or`.
 5.  **OrderBy:** (Optional) The keyword `OrderBy` followed by one or more sorting rules. Each rule consists of a field name
-and an optional direction (`Asc` or `Desc`, defaulting to `Desc`). Multiple sorting rules must be separated by the `And` keyword.
+and an optional direction (`Asc` or `Desc`, defaulting to `Desc`). Multiple sorting rules are chained directly without separators.
 
 *Examples:*
-* `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscAndCreatedAtDesc`
+* `findUsersByAgeGreaterThanAndNameLikeOrderByNameAscCreatedAtDesc`
 * `listUsersByStatusAndAgeGreaterThan(string, uint) ([]User, Error)`
 * `streamAllByStatusOrderByCreatedAtDesc(string) Stream[User]`
 
@@ -302,7 +302,7 @@ type UserRepository struct {
     listByStatus                            func(string, ...OrmQueryFunc) ([]User, Error)
     findByRole                              func(string, ...OrmQueryFunc) []User
     streamByAgeGreaterThan                  func(uint) (Stream[User], Error)
-    findByAgeBetweenOrderByNameAscAndIdDesc func(uint, uint, ...OrmQueryFunc) []User
+    findByAgeBetweenOrderByNameAscIDDesc    func(uint, uint, ...OrmQueryFunc) []User
 }
 
 // 3. Expose the generated functions
@@ -327,7 +327,7 @@ func (this *UserRepository) StreamUsersByAgeGreaterThan(minAge uint) (Stream[Use
 }
 
 func (this *UserRepository) FindByAgeRangeDynamic(min, max uint, customFilters ...OrmQueryFunc) []User {
-    return this.findByAgeBetweenOrderByNameAscAndIdDesc(min, max, customFilters...)
+    return this.findByAgeBetweenOrderByNameAscIDDesc(min, max, customFilters...)
 }
 ```
 
@@ -507,16 +507,13 @@ type DashboardService struct {
 
 func (s *DashboardService) GetUserData(userId uint) Error {
 
-    // 1. Fetching just the user (Lightweight ID-only base method)
-    user, _ := s.userRepo.FindById(userId).Get()
-
-    // 2. Fetching the user WITH their Profile relation (Eager Loading via Query with WithPreload)
+    // 1. Fetching the user WITH their Profile relation (Eager Loading via Query with WithPreload)
     var userWithProfile User
     if err := s.userRepo.Query(WithPreload("Profile")).First(&userWithProfile, userId).Error; err != nil {
         return NewErrorFrom(err)
     }
 
-    // 3. Complex Nested Preloading
+    // 2. Complex Nested Preloading
     var detailedUser User
     if err := s.userRepo.Query(
         WithPreload("Profile"),
