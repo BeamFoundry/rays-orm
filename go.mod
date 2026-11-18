@@ -3,7 +3,7 @@ module github.com/BeamFoundry/rays-orm
 go 1.27
 
 require (
-	github.com/BeamFoundry/rays v0.4.0
+	github.com/BeamFoundry/rays v0.5.0-rc1
 	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
 	github.com/orandin/slog-gorm v1.4.0
@@ -27,9 +27,9 @@ require (
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-sqlite3 v1.14.24 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
