@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -243,6 +244,8 @@ var _ = Describe("UserRepository", func() {
 		Expect(u.UserName).To(Equal("dorothy"))
 		_, err = userRepository.FindWithErrorByUserName("toto")
 		Expect(err).To(HaveOccurred())
+		Expect(err.Name()).To(Equal("GormError"))
+		Expect(err).To(MatchError(gorm.ErrRecordNotFound))
 	})
 
 	/*
@@ -478,31 +481,37 @@ var _ = Describe("UserRepository", func() {
 
 type UserService struct {
 	Service
-	transactionManager GormTransactional       `@:"Inject"`
+	transactionManager TransactionManager      `@:"Inject"`
+	gormTransactional  GormTransactional       `@:"Inject"`
 	userRepository     UserRepositoryInterface `@:"Inject"`
 }
 
 func (this *UserService) TransactionalChangeRollback() {
-	this.transactionManager.Transactional(context.Background(), func(_ *gorm.DB) Error {
+	err := this.transactionManager.Transactional(func() Error {
 		user, _ := this.userRepository.FindById(1).Get()
 		user.Name = "bar"
 		_, err := this.userRepository.Save(user)
 		Expect(err).NotTo(HaveOccurred())
 		return NewError("TransactionalError", "Rolling back")
 	})
+	Expect(err).To(HaveOccurred())
 
 	u := this.userRepository.FindByName("bar")
 	Expect(u).To(BeNil())
 }
 
 func (this *UserService) TransactionalChange() {
-	this.transactionManager.Transactional(context.Background(), func(_ *gorm.DB) Error {
+	this.transactionManager.SetContext(context.Background())
+	defer this.transactionManager.ClearContext()
+
+	err := this.transactionManager.Transactional(func() Error {
 		user, _ := this.userRepository.FindById(1).Get()
 		user.Name = "bar"
 		_, err := this.userRepository.Save(user)
 		Expect(err).NotTo(HaveOccurred())
 		return nil
 	})
+	Expect(err).NotTo(HaveOccurred())
 
 	u := this.userRepository.FindByName("bar")
 	Expect(u).NotTo(BeNil())
@@ -510,16 +519,41 @@ func (this *UserService) TransactionalChange() {
 }
 
 func (this *UserService) ErrorAfterRollback() {
-	t := this.transactionManager.Start(context.Background())
+	Expect(this.transactionManager.Start()).NotTo(HaveOccurred())
 	user, _ := this.userRepository.FindById(1).Get()
-	t.Rollback()
+	Expect(this.transactionManager.Rollback()).NotTo(HaveOccurred())
+	Expect(this.userRepository.FindById(1).IsPresent()).To(BeFalse())
 	Expect(this.userRepository.Delete(user)).To(HaveOccurred())
 	Expect(this.userRepository.DeleteById(1)).To(HaveOccurred())
 	_, err := this.userRepository.Save(user)
 	Expect(err).To(HaveOccurred())
 	_, err = this.userRepository.SaveAll([]*User{user})
 	Expect(err).To(HaveOccurred())
+	Expect(this.gormTransactional.Error()).To(HaveOccurred())
+	Expect(this.gormTransactional.Commit()).To(HaveOccurred())
+	Expect(this.gormTransactional.Rollback()).To(HaveOccurred())
 	this.transactionManager.End()
+}
+
+func (this *UserService) RepositoryErrorRollsBackTransaction() {
+	err := this.transactionManager.Transactional(func() Error {
+		user, _ := this.userRepository.FindById(1).Get()
+		user.Name = "bar"
+		_, saveErr := this.userRepository.Save(user)
+		Expect(saveErr).NotTo(HaveOccurred())
+
+		// FindWithErrorByUserName on non-existent user reports error to GormTransactional -> TransactionManager
+		_, findErr := this.userRepository.FindWithErrorByUserName("nonexistent")
+		Expect(findErr).To(HaveOccurred())
+		Expect(this.transactionManager.Error()).To(Equal(findErr))
+
+		// Subsequent Enlist or Commit is rejected; even returning nil from closure must fail and rollback
+		return nil
+	})
+	Expect(err).To(HaveOccurred())
+
+	u := this.userRepository.FindByName("bar")
+	Expect(u).To(BeNil())
 }
 
 var _ = Describe("UserService", func() {
@@ -547,7 +581,248 @@ var _ = Describe("UserService", func() {
 	It("can start a Transaction and commit it", func() {
 		userService.TransactionalChange()
 	})
+
 	It("can return an error if an operation is done after Rollback", func() {
 		userService.ErrorAfterRollback()
+	})
+
+	It("automatically rolls back when a repository query reports an error", func() {
+		userService.RepositoryErrorRollsBackTransaction()
+	})
+
+	It("handles driver start errors when underlying sql.DB is closed", func() {
+		sqlDB, err := userRepository.Query().DB()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sqlDB.Close()).NotTo(HaveOccurred())
+
+		txErr := userService.transactionManager.Transactional(func() Error {
+			_ = userService.userRepository.FindByName("Dorothy")
+			return nil
+		})
+		Expect(txErr).To(HaveOccurred())
+	})
+})
+
+type tenantCtxKey string
+
+const tenantKey tenantCtxKey = "tenant"
+
+type TypeSplitDBConfig struct {
+	Configuration
+	userDB   *gorm.DB
+	animalDB *gorm.DB
+}
+
+func (this *TypeSplitDBConfig) PostConstruct() Error {
+	this.userDB = openTestSQLiteDB()
+	this.animalDB = openTestSQLiteDB()
+	Expect(this.userDB.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	Expect(this.animalDB.AutoMigrate(&Animal{})).NotTo(HaveOccurred())
+	return nil
+}
+
+func (this *TypeSplitDBConfig) DB(ctx context.Context) *gorm.DB {
+	if OrmEntityTypeFromContext(ctx) == reflect.TypeFor[Animal]() {
+		return this.animalDB
+	}
+	return this.userDB
+}
+
+type RepoTypeSplitDBConfig struct {
+	Configuration
+	userDB   *gorm.DB
+	animalDB *gorm.DB
+}
+
+func (this *RepoTypeSplitDBConfig) PostConstruct() Error {
+	this.userDB = openTestSQLiteDB()
+	this.animalDB = openTestSQLiteDB()
+	Expect(this.userDB.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	Expect(this.animalDB.AutoMigrate(&Animal{})).NotTo(HaveOccurred())
+	return nil
+}
+
+func (this *RepoTypeSplitDBConfig) DB(ctx context.Context) *gorm.DB {
+	if OrmRepositoryTypeFromContext(ctx) == reflect.TypeFor[*AnimalRepository]() {
+		return this.animalDB
+	}
+	return this.userDB
+}
+
+type ContextSplitUserRepository struct {
+	OrmRepository[User, uint]
+	foundry       Foundry[GormTransactional] `@:"Inject"`
+	findByName    func(string) *User
+	returnNilInTx bool
+}
+
+var _ GormTransactionalResolver = &ContextSplitUserRepository{}
+
+func (this *ContextSplitUserRepository) GormTransactional(ctx context.Context) GormTransactional {
+	if this.returnNilInTx {
+		return nil
+	}
+	tx, err := this.foundry.Forge(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	return tx
+}
+
+func (this *ContextSplitUserRepository) FindByName(name string) *User {
+	return this.findByName(name)
+}
+
+type ContextSplitDBConfig struct {
+	Configuration
+	defaultDB *gorm.DB
+	tenantADB *gorm.DB
+	tenantBDB *gorm.DB
+}
+
+func (this *ContextSplitDBConfig) PostConstruct() Error {
+	this.defaultDB = openTestSQLiteDB()
+	this.tenantADB = openTestSQLiteDB()
+	this.tenantBDB = openTestSQLiteDB()
+	Expect(this.defaultDB.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	Expect(this.tenantADB.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	Expect(this.tenantBDB.AutoMigrate(&User{})).NotTo(HaveOccurred())
+	return nil
+}
+
+func (this *ContextSplitDBConfig) DB(ctx context.Context) *gorm.DB {
+	switch ctx.Value(tenantKey) {
+	case "tenantA":
+		return this.tenantADB
+	case "tenantB":
+		return this.tenantBDB
+	default:
+		return this.defaultDB
+	}
+}
+
+func openTestSQLiteDB() *gorm.DB {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		Logger: sloggorm.New(
+			sloggorm.WithHandler(GetLogger().Handler()),
+		),
+	})
+	Expect(err).NotTo(HaveOccurred())
+	return db
+}
+
+var _ = Describe("Type Splitting & Context Splitting", func() {
+	It("splits *gorm.DB drivers by Entity Type T and coordinates multi-DB commit and rollback", func() {
+		GetContainer().Reset()
+
+		userRepo := &UserRepository{}
+		animalRepo := &AnimalRepository{}
+		AddBeamFor(&TypeSplitDBConfig{})
+		AddBeamFor(userRepo)
+		AddBeamFor(animalRepo)
+		GetContainer().EnableScanning()
+		Expect(GetContainer().Initialize()).NotTo(HaveOccurred())
+
+		txMgr := GetBeamDefaultInstance[TransactionManager]()
+
+		// 1. Coordinated multi-DB Commit across userDB and animalDB
+		Expect(txMgr.Transactional(func() Error {
+			u, err := userRepo.Save(&User{Name: "Dorothy", UserName: "dorothy", Age: 25})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = animalRepo.Save(&Animal{Name: "Toto", UserID: u.ID})
+			Expect(err).NotTo(HaveOccurred())
+			return nil
+		})).NotTo(HaveOccurred())
+
+		Expect(userRepo.FindById(1).IsPresent()).To(BeTrue())
+		Expect(animalRepo.FindById(1).IsPresent()).To(BeTrue())
+
+		// 2. Coordinated multi-DB Rollback: error after saving in both DBs rolls back BOTH userDB and animalDB
+		Expect(txMgr.Transactional(func() Error {
+			_, err := userRepo.Save(&User{Name: "Glinda", UserName: "glinda", Age: 30})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = animalRepo.Save(&Animal{Name: "Lion", UserID: 2})
+			Expect(err).NotTo(HaveOccurred())
+			return NewError("AbortBoth", "rollback both databases")
+		})).To(HaveOccurred())
+
+		Expect(userRepo.FindByName("Glinda")).To(BeNil())
+		Expect(animalRepo.FindById(2).IsPresent()).To(BeFalse())
+	})
+
+	It("splits *gorm.DB drivers by Repository Type", func() {
+		GetContainer().Reset()
+
+		userRepo := &UserRepository{}
+		animalRepo := &AnimalRepository{}
+		AddBeamFor(&RepoTypeSplitDBConfig{})
+		AddBeamFor(userRepo)
+		AddBeamFor(animalRepo)
+		GetContainer().EnableScanning()
+		Expect(GetContainer().Initialize()).NotTo(HaveOccurred())
+
+		_, err := userRepo.Save(&User{Name: "Oz", UserName: "oz", Age: 50})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = animalRepo.Save(&Animal{Name: "Tiger", UserID: 1})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(userRepo.FindById(1).IsPresent()).To(BeTrue())
+		Expect(animalRepo.FindById(1).IsPresent()).To(BeTrue())
+
+		// Also verify helper functions on empty context and direct ParentType/ParentInstance context
+		Expect(OrmRepositoryTypeFromContext(context.Background())).To(BeNil())
+		Expect(OrmEntityTypeFromContext(context.Background())).To(BeNil())
+		parentCtx := context.WithValue(context.Background(), PrototypeContextParentType, reflect.TypeFor[*UserRepository]())
+		parentCtx = context.WithValue(parentCtx, PrototypeContextParentInstance, userRepo)
+		Expect(OrmRepositoryTypeFromContext(parentCtx)).To(Equal(reflect.TypeFor[*UserRepository]()))
+		Expect(OrmEntityTypeFromContext(parentCtx)).To(Equal(reflect.TypeFor[User]()))
+	})
+
+	It("splits *gorm.DB drivers dynamically by context.Context via GormTransactionalResolver and Foundry", func() {
+		GetContainer().Reset()
+
+		repo := &ContextSplitUserRepository{}
+		AddBeamFor(&ContextSplitDBConfig{})
+		AddBeamFor(repo)
+		GetContainer().EnableScanning()
+		Expect(GetContainer().Initialize()).NotTo(HaveOccurred())
+
+		txMgr := GetBeamDefaultInstance[TransactionManager]()
+
+		// Tenant A transaction
+		ctxA := context.WithValue(context.Background(), tenantKey, "tenantA")
+		txMgr.SetContext(ctxA)
+		Expect(txMgr.Transactional(func() Error {
+			_, err := repo.Save(&User{Name: "AliceA", UserName: "alice_a", Age: 20})
+			Expect(err).NotTo(HaveOccurred())
+			// Second call in same context hits goroutine txCache
+			Expect(repo.FindByName("AliceA")).NotTo(BeNil())
+			return nil
+		})).NotTo(HaveOccurred())
+		txMgr.ClearContext()
+
+		// Tenant B transaction
+		ctxB := context.WithValue(context.Background(), tenantKey, "tenantB")
+		txMgr.SetContext(ctxB)
+		Expect(txMgr.Transactional(func() Error {
+			// AliceA does not exist in Tenant B's database
+			Expect(repo.FindByName("AliceA")).To(BeNil())
+			_, err := repo.Save(&User{Name: "BobB", UserName: "bob_b", Age: 30})
+			return err
+		})).NotTo(HaveOccurred())
+		txMgr.ClearContext()
+
+		// Verify isolation between Tenant A, Tenant B, and Default DB
+		txMgr.SetContext(ctxA)
+		Expect(repo.FindByName("AliceA")).NotTo(BeNil())
+		Expect(repo.FindByName("BobB")).To(BeNil())
+		txMgr.ClearContext()
+
+		txMgr.SetContext(ctxB)
+		Expect(repo.FindByName("BobB")).NotTo(BeNil())
+		Expect(repo.FindByName("AliceA")).To(BeNil())
+		txMgr.ClearContext()
+
+		// Fallback to default transactionManager when resolver returns nil
+		repo.returnNilInTx = true
+		Expect(repo.FindByName("AliceA")).To(BeNil())
 	})
 })

@@ -18,7 +18,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -coverprofile=coverage.txt ./pkg/core
+        run: go test -coverprofile=coverage.txt ./pkg/core ./pkg/util
 
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v5

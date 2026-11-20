@@ -1,16 +1,18 @@
 package core
 
 import (
+	"errors"
 	"iter"
 	"reflect"
 	"slices"
 	"strings"
 
+	"gorm.io/gorm"
+
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
 	. "github.com/BeamFoundry/rays/pkg/util"
 	. "github.com/BeamFoundry/rays/pkg/util/stream"
-	"gorm.io/gorm"
 )
 
 type gormQueryBuilder[T any, ID comparable] struct {
@@ -244,7 +246,7 @@ func (this *gormQuery[T, ID]) validate() Error {
 	return nil
 }
 
-func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Value) []reflect.Value {
+func (this *gormQuery[T, ID]) Query(txProvider func() GormTransactional) func(in []reflect.Value) []reflect.Value {
 	output := this.function.Type.Out(0)
 	one := output == reflect.TypeFor[*T]()
 	multi := output.Kind() == reflect.Slice
@@ -257,6 +259,7 @@ func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Valu
 	}
 
 	return func(in []reflect.Value) []reflect.Value {
+		tx := txProvider()
 		var model T
 		db := tx.Get().Model(&model)
 		if one || optional {
@@ -323,12 +326,14 @@ func (this *gormQuery[T, ID]) Query(tx GormTransactional) func(in []reflect.Valu
 			}
 		}
 
-		if hasError {
-			if res.Error != nil {
-				ret = append(ret, reflect.ValueOf(NewError("GormError", res.Error.Error())))
-			} else {
-				ret = append(ret, reflect.Zero(reflect.TypeFor[Error]()))
+		if res.Error != nil && (hasError || !errors.Is(res.Error, gorm.ErrRecordNotFound)) {
+			err := NewWrappedError("GormError", res.Error)
+			tx.SetError(err)
+			if hasError {
+				ret = append(ret, reflect.ValueOf(err))
 			}
+		} else if hasError {
+			ret = append(ret, reflect.Zero(reflect.TypeFor[Error]()))
 		}
 		return ret
 	}
