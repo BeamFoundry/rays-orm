@@ -244,6 +244,8 @@ var _ = Describe("UserRepository", func() {
 		Expect(u.UserName).To(Equal("dorothy"))
 		_, err = userRepository.FindWithErrorByUserName("toto")
 		Expect(err).To(HaveOccurred())
+		Expect(err.Name()).To(Equal("GormError"))
+		Expect(err).To(MatchError(gorm.ErrRecordNotFound))
 	})
 
 	/*

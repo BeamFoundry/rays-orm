@@ -133,7 +133,7 @@ func (this *UserServiceImpl) AddUser(username string) (*User, error) {
 Because `GormTransactional` is a **Prototype** Beam and `GormTransactionalManager` tracks active goroutine transactions per `*gorm.DB` driver instance:
 
 - Repositories that resolve to the **same** `*gorm.DB` driver on a goroutine automatically share the same active SQL transaction.
-- Repositories that resolve to **different** `*gorm.DB` drivers on a goroutine each enlist their own `*gorm.DB` transaction in `TransactionManager`, giving you coordinated multi-database commits and automatic cross-database rollbacks.
+- Repositories that resolve to **different** `*gorm.DB` drivers on a goroutine each enlist their own `*gorm.DB` transaction in `TransactionManager`, providing **best-effort** multi-database commit and rollback coordination (rather than an atomic distributed transaction).
 
 When a Prototype `GormTransactional` injects a Prototype `*gorm.DB` (a `Configuration` method accepting `ctx context.Context`), Rays automatically populates `ctx` with:
 - `PrototypeContextProxyType`: The `reflect.Type` of the repository (e.g. `*UserRepository`).
@@ -190,7 +190,9 @@ func (this *MultiDBConfig) DB(ctx context.Context) *gorm.DB {
 }
 ```
 
-When a service runs `this.txManager.Transactional(...)` and calls both `userRepo` (`primaryDB`) and `auditRepo` (`auditDB`), both databases lazily enlist in `TransactionManager` and commit or roll back together.
+When a service runs `this.txManager.Transactional(...)` and calls both `userRepo` (`primaryDB`) and `auditRepo` (`auditDB`), both databases lazily enlist in `TransactionManager` for **best-effort** coordination: if an error occurs before commit, all enlisted databases are rolled back together; at completion, each enlisted database is committed sequentially.
+
+> **Important:** Multi-database coordination is **not** an atomic two-phase commit (2PC). If one database commits and a subsequent database's commit fails, the already-committed changes remain durable while the failing and remaining uncommitted databases are rolled back. Application-level recovery or compensation is required to handle partial commit failures.
 
 ---
 
@@ -213,6 +215,7 @@ import (
 
     . "github.com/BeamFoundry/rays-orm/pkg/core"
     . "github.com/BeamFoundry/rays/pkg/core"
+    . "github.com/BeamFoundry/rays/pkg/lang"
 )
 
 type TenantKeyType string
@@ -229,11 +232,11 @@ type UserRepository struct {
 var _ GormTransactionalResolver = &UserRepository{}
 
 func (this *UserRepository) GormTransactional(ctx context.Context) GormTransactional {
-    tx, err := this.foundry.Forge(ctx)
-    if err != nil {
-        return nil // Falls back to the default injected GormTransactional
+    if ctx.Value(TenantKey) == nil {
+        return nil // Intentional default route: falls back to the default injected GormTransactional
     }
-    return tx
+    // Stop the operation and propagate any Forge routing failure rather than falling back to defaultDB
+    return RaiseVal(this.foundry.Forge(ctx))
 }
 
 func (this *UserRepository) FindByName(name string) *User {
@@ -248,14 +251,16 @@ type TenantDBConfig struct {
     tenantBDB *gorm.DB
 }
 
-func (this *TenantDBConfig) DB(ctx context.Context) *gorm.DB {
+func (this *TenantDBConfig) DB(ctx context.Context) (*gorm.DB, Error) {
     switch ctx.Value(TenantKey) {
+    case nil:
+        return this.defaultDB, nil
     case "tenant-a":
-        return this.tenantADB
+        return this.tenantADB, nil
     case "tenant-b":
-        return this.tenantBDB
+        return this.tenantBDB, nil
     default:
-        return this.defaultDB
+        return nil, NewError("UnknownTenantError", "unrecognized tenant in context")
     }
 }
 ```

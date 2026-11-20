@@ -327,7 +327,7 @@ func (this *gormQuery[T, ID]) Query(txProvider func() GormTransactional) func(in
 		}
 
 		if res.Error != nil && (hasError || !errors.Is(res.Error, gorm.ErrRecordNotFound)) {
-			err := NewError("GormError", res.Error.Error())
+			err := NewWrappedError("GormError", res.Error)
 			tx.SetError(err)
 			if hasError {
 				ret = append(ret, reflect.ValueOf(err))
