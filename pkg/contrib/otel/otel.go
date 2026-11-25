@@ -8,6 +8,8 @@
 package otel
 
 import (
+	"reflect"
+
 	_ "github.com/BeamFoundry/rays" // rays
 	. "github.com/BeamFoundry/rays/pkg/core"
 	. "github.com/BeamFoundry/rays/pkg/lang"
@@ -47,8 +49,9 @@ var _, _ = any(&GormOtelAutoConfiguration{}).(Stereotype)
 // PostConstruct instruments each [*gorm.DB] beam with the OpenTelemetry GORM plugin.
 func (this *GormOtelAutoConfiguration) PostConstruct() Error {
 	var cfg gormOtelConfig
-	//nolint:errcheck // Optional config section; missing key leaves zero-value defaults
-	_ = this.env.ConfigUnmarshall("rays.orm.otel", &cfg)
+	if err := this.env.ConfigUnmarshall("rays.orm.otel", &cfg); err != nil && err.Name() != "KeyNotFoundError" {
+		return err
+	}
 
 	var opts []tracing.Option
 	if tp, ok := this.tracerProvider.Get(); ok {
@@ -75,6 +78,9 @@ func (this *GormOtelAutoConfiguration) PostConstruct() Error {
 
 	plugin := tracing.NewPlugin(opts...)
 	for _, db := range this.dbs {
+		if existing, ok := db.Plugins[plugin.Name()]; ok && reflect.TypeOf(existing).Comparable() && existing == plugin {
+			continue
+		}
 		if err := db.Use(plugin); err != nil {
 			return NewErrorFrom(err)
 		}

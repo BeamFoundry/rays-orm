@@ -2,6 +2,7 @@ package tx_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,7 +15,6 @@ import (
 
 	_ "github.com/BeamFoundry/rays-orm"
 	. "github.com/BeamFoundry/rays-orm/pkg/core"
-	. "github.com/BeamFoundry/rays-orm/pkg/tx"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -35,6 +35,25 @@ func (this *testTxDBConfig) DB() (*gorm.DB, Error) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		return nil, NewErrorFrom(err)
+	}
+	return db, nil
+}
+
+type testClosedTxDBConfig struct {
+	Configuration
+}
+
+func (this *testClosedTxDBConfig) DB() (*gorm.DB, Error) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	if err != nil {
+		return nil, NewErrorFrom(err)
+	}
+	sqlDB, sqlErr := db.DB()
+	if sqlErr != nil {
+		return nil, NewErrorFrom(sqlErr)
+	}
+	if closeErr := sqlDB.Close(); closeErr != nil {
+		return nil, NewErrorFrom(closeErr)
 	}
 	return db, nil
 }
@@ -87,25 +106,42 @@ var _ = Describe("GormTransactionalManager", func() {
 		Expect(gormTx.Error()).NotTo(HaveOccurred())
 	})
 
-	It("handles Start, Commit, Rollback, and Enlist error paths cleanly", func() {
-		db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-		Expect(err).NotTo(HaveOccurred())
-		sqlDB, sqlErr := db.DB()
-		Expect(sqlErr).NotTo(HaveOccurred())
-		Expect(sqlDB.Close()).To(Succeed())
+	It("returns errors on Start and Enlist when driver is closed and treats Commit/Rollback without active tx as no-ops", func() {
+		AddBeamFor(&testClosedTxDBConfig{})
+		GetContainer().EnableScanning()
+		Expect(GetContainer().Initialize()).To(Succeed())
 
+		txMgr := GetBeamScopedInstance[TransactionManager]()
+		gormTx := GetBeamScopedInstance[GormTransactional]()
+
+		Expect(gormTx.Commit()).To(Succeed())
+		Expect(gormTx.Rollback()).To(Succeed())
+
+		Expect(gormTx.Start()).To(HaveOccurred())
+
+		Expect(txMgr.Start()).To(Succeed())
+		defer txMgr.End()
+		Expect(gormTx.Get().Error).To(HaveOccurred())
+	})
+
+	It("returns errors on Commit and Rollback when the active transaction carries an error", func() {
 		AddBeamFor(&testTxDBConfig{})
 		GetContainer().EnableScanning()
 		Expect(GetContainer().Initialize()).To(Succeed())
 
+		txMgr := GetBeamScopedInstance[TransactionManager]()
 		gormTx := GetBeamScopedInstance[GormTransactional]()
 
-		// Commit/Rollback without active tx are no-ops
-		Expect(gormTx.Commit()).To(Succeed())
-		Expect(gormTx.Rollback()).To(Succeed())
+		Expect(txMgr.Start()).To(Succeed())
+		tx := gormTx.Get()
+		Expect(tx.AddError(errors.New("commit failed"))).NotTo(Succeed())
+		Expect(gormTx.Commit()).To(HaveOccurred())
+		txMgr.End()
 
-		// Start on closed DB fails
-		closedMgr := (&GormTransactionalManager{}).New()
-		Expect(closedMgr).NotTo(BeNil())
+		Expect(txMgr.Start()).To(Succeed())
+		tx2 := gormTx.Get()
+		Expect(tx2.AddError(errors.New("rollback failed"))).NotTo(Succeed())
+		Expect(gormTx.Rollback()).To(HaveOccurred())
+		txMgr.End()
 	})
 })
