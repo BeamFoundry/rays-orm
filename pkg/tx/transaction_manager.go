@@ -80,7 +80,7 @@ func (this *GormTransactionalManager) Rollback() Error {
 
 func (this *GormTransactionalManager) Get() *gorm.DB {
 	if tx := this.getActiveTx(); tx != nil {
-		return tx
+		return tx.WithContext(this.txManager.GetContext())
 	}
 	if this.txManager.IsActive() {
 		if err := this.txManager.Enlist(this); err != nil {
